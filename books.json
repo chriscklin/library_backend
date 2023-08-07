@@ -1,0 +1,62 @@
+ [
+  {
+    "title": "The Alchemist",
+    "author": "Paulo Coelho",
+    "genre": ["Fiction", "Adventure"],
+    "isbn": "978-1-234567-89-0"
+  },
+  {
+    "title": "Pride and Prejudice",
+    "author": "Jane Austen",
+    "genre": ["Fiction", "Romance"],
+    "isbn": "978-2-345678-90-1"
+  },
+  {
+    "title": "1984",
+    "author": "George Orwell",
+    "genre": ["Fiction", "Dystopian"],
+    "isbn": "978-3-456789-01-2"
+  },
+  {
+    "title": "To Kill a Mockingbird",
+    "author": "Harper Lee",
+    "genre": ["Fiction", "Classic"],
+    "isbn": "978-4-567890-12-3"
+  },
+  {
+    "title": "The Catcher in the Rye",
+    "author": "J.D. Salinger",
+    "genre": ["Fiction", "Coming-of-age"],
+    "isbn": "978-5-678901-23-4"
+  },
+  {
+    "title": "Harry Potter and the Sorcerer's Stone",
+    "author": "J.K. Rowling",
+    "genre": ["Fantasy", "Adventure"],
+    "isbn": "978-6-789012-34-5"
+  },
+  {
+    "title": "The Great Gatsby",
+    "author": "F. Scott Fitzgerald",
+    "genre": ["Fiction", "Historical"],
+    "isbn": "978-7-890123-45-6"
+  },
+  {
+    "title": "The Hunger Games",
+    "author": "Suzanne Collins",
+    "genre": ["Fiction", "Science Fiction"],
+    "isbn": "978-8-901234-56-7"
+  },
+  {
+    "title": "The Lord of the Rings",
+    "author": "J.R.R. Tolkien",
+    "genre": ["Fantasy", "Epic"],
+    "isbn": "978-9-012345-67-8"
+  },
+  {
+    "title": "Gone Girl",
+    "author": "Gillian Flynn",
+    "genre": ["Fiction", "Mystery"],
+    "isbn": "978-0-123456-78-9"
+  }
+]

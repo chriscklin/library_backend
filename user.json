@@ -1,0 +1,9 @@
+{
+    "firstName": "Chris",
+    "lastName": "Lin",
+    "username": "chrislin",
+    "password": "12345678",
+    "email": "chris@gmail.com",
+    "maxCheckOut": 10,
+    "checkOutList": []
+}
