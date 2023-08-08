@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
-	"gopkg.in/dgrijalva/jwt-go.v3"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -71,7 +71,7 @@ type book struct {
 	Genre             []string 				`json:"genre" bson:"genre"`
 	IsCheckedOut      bool     				`json:"is_checked_out" bson:"is_checked_out"`
 	CheckedOutDate    int64    				`json:"checked_out_date" bson:"checked_out_date"`
-	ReturnDate  	  int64    					`json:"return_date" bson:"return_date"`
+	ReturnDate  	  int64    				`json:"return_date" bson:"return_date"`
 	CheckedOutID      string				`json:"checked_out_id" bson:"checked_out_id"`
 	CheckedOutHistory []string 				`json:"checked_out_history" bson:"checked_out_history"`
 }
@@ -87,17 +87,33 @@ type user struct {
 	CheckOutList  	[]string 				`json:"check_out_list" bson:"check_out_list"`
 }
 
-type Claims struct {
-	Username string `json:"username" bson:"username"`
-	jwt.StandardClaims
-}
-
 func (b *book) setDefaults() {
 	b.IsCheckedOut = false
 	b.CheckedOutDate = -1
 	b.ReturnDate = -1
 	b.CheckedOutID = ""
 	b.CheckedOutHistory = []string{}
+}
+
+func copyUpdatesForReturn(updates bson.M, s interface{}) bson.M {
+	data, err := bson.Marshal(s)
+	if err != nil {
+		fmt.Println("Error Marshalling struct")
+		return nil
+	}
+
+	var result bson.M
+	err = bson.Unmarshal(data, &result)
+	if err != nil {
+		fmt.Println("Error unmarshalling bson byte slice")
+		return nil
+	}
+
+	for key, value := range updates {
+		result[key] = value
+	}
+
+	return result
 }
 
 func checkInBook(c *gin.Context, client *mongo.Client) {
@@ -259,8 +275,9 @@ func checkOutBook(c *gin.Context, client *mongo.Client) {
 		return
 	}
 
-	bookUpdate := bson.M{"$set": bson.M{"is_checked_out": true, "checked_out_date": time.Now().Unix(), "return_date": time.Now().Add(time.Hour * 168).Unix(), 
-	"checked_out_id": dbUser.ID.Hex(), "checked_out_history": append(dbBook.CheckedOutHistory, dbUser.ID.Hex())}}
+	bookBson := bson.M{"is_checked_out": true, "checked_out_date": time.Now().Unix(), "return_date": time.Now().Add(time.Hour * 168).Unix(), 
+	"checked_out_id": dbUser.ID.Hex(), "checked_out_history": append(dbBook.CheckedOutHistory, dbUser.ID.Hex())}
+	bookUpdate := bson.M{"$set": bookBson}
 	
 	updateBookResult, err := booksCollection.UpdateOne(ctx, bookFilter, bookUpdate)
 
@@ -273,7 +290,8 @@ func checkOutBook(c *gin.Context, client *mongo.Client) {
 		return
 	}
 
-	userUpdate := bson.M{"$set": bson.M{"check_out_list": append(dbUser.CheckOutList, dbBook.ID.Hex())}}
+	userBson := bson.M{"check_out_list": append(dbUser.CheckOutList, dbBook.ID.Hex())}
+	userUpdate := bson.M{"$set": userBson}
 
 	updateUserResult, err := usersCollection.UpdateOne(ctx, userFilter, userUpdate)
 
@@ -286,8 +304,9 @@ func checkOutBook(c *gin.Context, client *mongo.Client) {
 		return
 	}
 
-
-	c.IndentedJSON(http.StatusOK, gin.H{"book": dbBook, "user": dbUser})
+	updatedDbBookBson := copyUpdatesForReturn(bookBson, dbBook)
+	updatedDbUserBson := copyUpdatesForReturn(userBson, dbUser)
+	c.IndentedJSON(http.StatusOK, gin.H{"book": updatedDbBookBson, "user": updatedDbUserBson})
 	return
 }
 
@@ -329,6 +348,19 @@ func getAllBooksHandler(c *gin.Context, client *mongo.Client) {
 	c.JSON(http.StatusOK, results)
 }
 
+func requireBasicAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, password, hasAuth := c.Request.BasicAuth()
+
+		if hasAuth && user == "admin" && password == "admin" {
+            c.Next()
+        } else {
+            c.Header("WWW-Authenticate", `Basic realm="Restricted"`)
+            c.AbortWithStatus(http.StatusUnauthorized)
+        }
+	}
+}
+
 // POST request funcitons
 func registerNewUser(c *gin.Context, client *mongo.Client) {
 	collection := client.Database("library").Collection("users")
@@ -357,11 +389,12 @@ func registerNewUser(c *gin.Context, client *mongo.Client) {
 		newUser.Password = string(hashedPassword)
 		
 		// Insert the document into the collection
-		_, err = collection.InsertOne(ctx, newUser)
+		insertResult, err := collection.InsertOne(ctx, newUser)
 		if err != nil {
 			log.Fatal("Failed to insert document:", err)
 		}
 
+		newUser.ID = insertResult.InsertedID.(primitive.ObjectID)
 		setUserCookies(c, newUser)
 		fmt.Println("New User Created and logged in!")
 		c.IndentedJSON(http.StatusCreated, newUser)
@@ -460,12 +493,13 @@ func insertNewBook(c *gin.Context, client *mongo.Client) {
 	fmt.Printf("ISBN: %s\n\n", book.ISBN)
 
 	// Insert the document into the collection
-	_, err := collection.InsertOne(ctx, book)
+	insertResult, err := collection.InsertOne(ctx, book)
 	if err != nil {
 		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert book"})
 		return
 	}
 
+	book.ID = insertResult.InsertedID.(primitive.ObjectID)
 	c.IndentedJSON(http.StatusOK, book)
 	return
 }
@@ -491,13 +525,13 @@ func insertNewBooks(c *gin.Context, client *mongo.Client) {
 		fmt.Printf("ISBN: %s\n\n", book.ISBN)
 
 		// Insert the document into the collection
-		_, err := collection.InsertOne(ctx, book)
+		insertResult, err := collection.InsertOne(ctx, book)
 		if err != nil {
 			c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert new book"})
 			return
 		}
-
-		c.IndentedJSON(http.StatusOK, books)
+		book.ID = insertResult.InsertedID.(primitive.ObjectID)
+		c.IndentedJSON(http.StatusOK, book)
 	}
 }
 
@@ -644,6 +678,36 @@ func getOverdueBooks(c *gin.Context, client *mongo.Client) {
 		c.JSON(http.StatusOK, overdueBooks)
 }
 
+func deleteUser(c *gin.Context, client *mongo.Client) {
+	database := client.Database("library")
+	collection := database.Collection("users")
+
+	userID, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil{
+		c.IndentedJSON(http.StatusNotFound, gin.H{"error": "invalid user ID or misspelled endpoint"})
+		return
+	}
+
+	ctx := context.TODO()
+
+	filter := bson.M{"_id": userID}
+
+	deleteResult, err := collection.DeleteOne(ctx, filter)
+
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.IndentedJSON(http.StatusNotFound, gin.H{"error": "User does not exist"})
+			return
+		}
+	
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error querying the collection"})
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, gin.H{"success": userID.Hex() + " deleted. Count: " + strconv.FormatInt(deleteResult.DeletedCount, 10)})
+	return
+}
+
 func main() {
 	client := connectMongoDB()
 	// clearCookies()
@@ -657,12 +721,14 @@ func main() {
 	router.GET("/books/overdue", func(c *gin.Context){getOverdueBooks(c, client)})
 	router.GET("/users/:id", func(c *gin.Context){getUserByID(c, client)})
 
-	router.POST("/users/newUser", func(c *gin.Context){registerNewUser(c, client)})
-	router.POST("/books/newBook", func(c *gin.Context){insertNewBook(c, client)})
-	router.POST("/books/newBooks", func(c *gin.Context){insertNewBooks(c, client)})
+	router.POST("/users/newUser", requireBasicAuth(), func(c *gin.Context){registerNewUser(c, client)})
+	router.POST("/books/newBook", requireBasicAuth(), func(c *gin.Context){insertNewBook(c, client)})
+	router.POST("/books/newBooks", requireBasicAuth(), func(c *gin.Context){insertNewBooks(c, client)})
 
 	router.PATCH("/books/checkout", func(c *gin.Context){checkOutBook(c, client)})
 	router.PATCH("/books/checkin", func(c *gin.Context){checkInBook(c, client)})
+
+	router.DELETE("/users/:id", requireBasicAuth(), func(c *gin.Context){deleteUser(c, client)})
 
 	logoutGroup := router.Group("/logout")
 	logoutGroup.Use(requireLogin(), clearCookies())
